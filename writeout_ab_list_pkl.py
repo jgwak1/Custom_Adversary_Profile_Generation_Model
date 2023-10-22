@@ -4,7 +4,15 @@ import yaml
 import re
 
 
+
 # Change
+
+''' TODO: Later could also implement for adding abilities that ONLY support 'windows-cmd' '''
+windows_platform_choice = ["powershell"]
+if set(windows_platform_choice) - set{"powershell", "command_prompt"} != set():
+   raise ValueError("invalid choice. either or both 'powershell' and 'command_prompt'", flush = True)
+
+
 stockpile_plugin_abilities_dpath = "/data/d1/jgwak1/tabby/tools__Copied_from_home_zshu1_tools__run_on_panther/tools__Copied_from_home_zhsu1_tools/caldera/plugins/stockpile/data/abilities"
 atomic_plugin_abilities_dpath = "/data/d1/jgwak1/tabby/tools__Copied_from_home_zshu1_tools__run_on_panther/tools__Copied_from_home_zhsu1_tools/caldera/plugins/atomic/data/abilities"
 
@@ -53,16 +61,16 @@ if __name__ == "__main__":
             if 'windows' in yml_content['platforms'] or 'unknown' in yml_content['platforms'] :
 
                powershell_pattern = r'psh,pwsh|pwsh,psh|psh,cmd|cmd,psh|psh|pwsh'   # 'psh,pwsh' and 'psh,cmd' should precede.
-
                for key in yml_content['platforms']['windows']:
                   powershell_pattern__match  = re.search(powershell_pattern, key)
+                  # command_prompt_match = "cmd" in yml_content['platforms']['windows']
                   
                
                ##########################################################################################################
-               if powershell_pattern__match: # Add to ab_list only if it reached here.
-
-                  fact = None
-                  dependency = None 
+               if powershell_pattern__match: 
+                  
+                  fact = "None"
+                  dependency = "None" 
 
                   powershell_pattern__match__key_string = powershell_pattern__match.group()  # retrieve matched text    
 
@@ -80,9 +88,9 @@ if __name__ == "__main__":
                         fact = yml_content['platforms']['windows'][powershell_pattern__match__key_string]['parsers']\
                                           [parsers_pattern__match__key_string][0]['source']
                      else:
-                        fact = None
+                        fact = "None"
                   else: 
-                     fact = None
+                     fact = "None"
 
                   # dependency --------------------------------------------------------------------
                   if 'requirements' in yml_content: 
@@ -96,9 +104,9 @@ if __name__ == "__main__":
                         requirements_pattern__match__key_string = requirements_pattern__match.group()  # retrieve matched text 
                         dependency = yml_content['requirements'][0][requirements_pattern__match__key_string][0]['source']
                      else:
-                        dependency = None
+                        dependency = "None"
                   else:
-                     dependency = None
+                     dependency = "None"
                   # -------------------------------------------------------------------------------
 
                   # (id, dependency, fact)
@@ -159,8 +167,8 @@ if __name__ == "__main__":
                ##########################################################################################################
                if powershell_pattern__match: # Add to ab_list only if it reached here.
 
-                  fact = None
-                  dependency = None 
+                  fact = "None"
+                  dependency = "None" 
 
                   powershell_pattern__match__key_string = powershell_pattern__match.group()  # retrieve matched text    
 
@@ -179,9 +187,9 @@ if __name__ == "__main__":
                         fact = yml_content['platforms'][platform__match__key_string][powershell_pattern__match__key_string]['parsers']\
                                           [parsers_pattern__match__key_string][0]['source']
                      else:
-                        fact = None
+                        fact = "None"
                   else: 
-                     fact = None
+                     fact = "None"
 
                   # dependency --------------------------------------------------------------------
                   if 'requirements' in yml_content: 
@@ -195,13 +203,13 @@ if __name__ == "__main__":
                         requirements_pattern__match__key_string = requirements_pattern__match.group()  # retrieve matched text 
                         dependency = yml_content['requirements'][0][requirements_pattern__match__key_string][0]['source']
                      else:
-                        dependency = None
+                        dependency = "None"
                   else:
-                     dependency = None
+                     dependency = "None"
                   # -------------------------------------------------------------------------------
 
                   # (id, dependency, fact)
-                  ab_list.append( (ability_id, dependency, fact, 'atomic') )
+                  ab_list.append( (ability_id, dependency, fact, 'atomic', powershell_pattern__match) )
                ##########################################################################################################
 
                else: # if this technique does not support powershell, continue 
