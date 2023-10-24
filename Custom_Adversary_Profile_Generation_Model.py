@@ -54,10 +54,10 @@ ATOMIC__ALL_TACTICS = [ATOMIC__COLLECTION, ATOMIC__COMMAND_AND_CONTROL, ATOMIC__
 
 BOTH__ALL_TACTICS = STOCKPILE__ALL_TACTICS + ATOMIC__ALL_TACTICS
 
-f1 = open('/data/d1/jgwak1/tabby/tools__Copied_from_home_zshu1_tools__run_on_panther/tools__Copied_from_home_zhsu1_tools/etw/caldera/MitreTechniqueID__caldera_ability_id__map_dict.json')
+f1 = open('/home/priti/Desktop/caldera/etw/caldera/MitreTechniqueID__caldera_ability_id__map_dict__ablistJY.json')
 MitreTechniqueID__caldera_ability_id__map_dict = json.load(f1)
 
-f2 = open("/data/d1/jgwak1/tabby/tools__Copied_from_home_zshu1_tools__run_on_panther/tools__Copied_from_home_zhsu1_tools/etw/caldera/caldera_ability_id__MitreTechniqueID__map_dict.json")
+f2 = open("/home/priti/Desktop/caldera/etw/caldera/caldera_ability_id__MitreTechniqueID__map_dict__ablistJY.json")
 caldera_ability_id__MitreTechniqueID__map_dict = json.load(f2)
 
 # JY: If need to also incorporate ATOMIC later together with stockpile, --> BOTH_PLUGINS__COLLECTION 
@@ -104,7 +104,7 @@ class Custom_Adversary_Profile_Generation_Model_v1:
       
       self.custom_adversary_profile_yml_dirpath = custom_adversary_profile_yml_dirpath
       self.custom_adversary_profile_description = custom_adversary_profile_description
-      self.ab_tuple_list = pickle.load( open( os.path.join( str(Path(__file__).parent), 'ab_list.pkl') ,'rb' ) ) # zhan's ab_tuple_list
+      self.ab_tuple_list = pickle.load( open( os.path.join( str(Path(__file__).parent), 'ab_list__JY.pkl') ,'rb' ) ) # zhan's ab_tuple_list
 
       self.list_of_ability_ids = self.get_list_of_ability_ids( list_of_technique_ids )
 
@@ -177,7 +177,8 @@ class Custom_Adversary_Profile_Generation_Model_v1:
          elif self.plugin == "atomic":
             list_of_ability_ids = [ v for k,v in atomic_id_one_to_many_map.items() if k.lower() in list_of_technique_ids_lowercase ]
          else:
-            both_plugins_id_one_to_many_map = stockpile_id_one_to_many_map | atomic_id_one_to_many_map
+            #both_plugins_id_one_to_many_map = stockpile_id_one_to_many_map | atomic_id_one_to_many_map
+            both_plugins_id_one_to_many_map = {**stockpile_id_one_to_many_map , **atomic_id_one_to_many_map }
             list_of_ability_ids = [ v for k,v in both_plugins_id_one_to_many_map.items() if k.lower() in list_of_technique_ids_lowercase ]
 
 
@@ -308,7 +309,11 @@ class Custom_Adversary_Profile_Generation_Model_v1:
             if len(custom_adversary_profile_abilities) == 0: 
             
                current_tactic_ability_tuple_list = list( filter(lambda v: v is not None, [ self.search_from_ab_list(ability_id) for ability_id in current_tactic_ability_ids ]) )
-               current_tactic_non_dependent_ability_tuple_list = [ x for x in current_tactic_ability_tuple_list if x[1] == "None" ]               
+               current_tactic_non_dependent_ability_tuple_list = [ x for x in current_tactic_ability_tuple_list if x[1] == "None" ]
+
+               if len(current_tactic_non_dependent_ability_tuple_list) == 0:
+                  continue               
+
                sampling_weights = [ self.sampling_weight_for_factyielding_abs if tup[2] not in ["None", "validate_me"] else self.sampling_weight_for_non_factyielding_abs  
                                     for tup in current_tactic_non_dependent_ability_tuple_list ]
                selected_abilitiy_tuple = random.choices(current_tactic_non_dependent_ability_tuple_list, 
@@ -353,10 +358,10 @@ class Custom_Adversary_Profile_Generation_Model_v1:
 
       adversary_id = f"custom_adversary_profile__{self.custom_adversary_profile_description}__{datetime.now().strftime('%Y-%m-%d-%H_%M_%S')}"
 
-      first = f"""adversary_id: {adversary_id}\nname: Custom Adversary Profile\ndescription: {sequence_of_tactics}\natomic_ordering:\n"""
+      first = f"""adversary_id: {adversary_id}\nname: Custom Adversary Profile\ndescription: {str(sequence_of_tactics).replace('[','__').replace(']','').replace(' ','')}\natomic_ordering:\n"""
       mid = ""
       for ab_tuple in ab_tuple_list:
-         mid += f"- {ab_tuple[0]} # {ab_tuple} ; {caldera_ability_id__MitreTechniqueID__map_dict[ab_tuple[0]]}\n"
+         mid += f"- {ab_tuple[0]} # {ab_tuple} ; {caldera_ability_id__MitreTechniqueID__map_dict[ab_tuple[0]]['tactic']} ; {caldera_ability_id__MitreTechniqueID__map_dict[ab_tuple[0]]['technique']} - {caldera_ability_id__MitreTechniqueID__map_dict[ab_tuple[0]]['technique']['attack_id']}; {caldera_ability_id__MitreTechniqueID__map_dict[ab_tuple[0]]}\n"
       last  ="""objective: 495a9828-cab1-44dd-a0ca-66e58177d8cc\ntags: []"""
 
       custom_adversary_yml_file_text = first + mid + last
@@ -371,9 +376,15 @@ class Custom_Adversary_Profile_Generation_Model_v1:
 
 if __name__ == "__main__":
 
+
+   # 'None', 'APT_3'
    threat_group_choice = "None"
-   sequence_of_tactics_choice = "None"
-   plugin_choice = "stockpile"
+
+   # 'None', ...
+   sequence_of_tactics_choice = "Survey_Paper_APT_Attack_Six_Phases"
+   
+   # stockpile , atomic, both
+   plugin_choice = "both"
 
 
 
@@ -381,7 +392,7 @@ if __name__ == "__main__":
    #############################################################################################################################
    default_profile_length = 7
    custom_adversary_profile_yml_dirpath = \
-   "/data/d1/jgwak1/tabby/tools__Copied_from_home_zshu1_tools__run_on_panther/tools__Copied_from_home_zhsu1_tools/etw/caldera/Custom_Adversary_Profile_yml_files"
+   "/home/priti/Desktop/caldera/etw/caldera/Custom_Adversary_Profile_yml_files"  
    #############################################################################################################################
    # https://attack.mitre.org/groups/
 
