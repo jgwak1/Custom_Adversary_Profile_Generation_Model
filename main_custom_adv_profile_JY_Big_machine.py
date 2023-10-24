@@ -21,156 +21,94 @@ from caldera import delete_agent
 import datetime 
 
 
+VM_IP = '192.168.122.132'     # JY:  JY-Big machine's VM IP-address    
+OurIp = 'localhost'
         
     
-def get_record( p, record_time, adversary_id, store_name= None):
+def interact_with_VM_for_logging( p, record_time, adversary_id, store_name= None):
     
     '''
     [Added by JY @ 2023-02-27 for JY's better understanding]
-
     Start to record
-
     https://docs.google.com/document/d/1Z7dx2a--M2dUrdub-J-ljwCMSjShgLe1rG4ALChi4ic/edit
-
     '''
-
     print ('start') 
-
-
     #-----------------------------------------------------------------------------------------------------------------------
-    # 1. Socket TCP connect to VM
+    # 1. Send message ("start__logstash__silkservice__caldera_agent") to VM
 
-    # Lets catch the 1st argument as server ip    
-    ServerIp = '192.168.122.132'     # JY:  JY-Big machine's VM IP-address    
-    OurIp = 'localhost'
-    # Now we can create socket object    
-    s = socket.socket()
-    # Lets choose one port and connect to that port
-    PORT = 9900
-    # Lets connect to that port where server may be running
-    s.connect((ServerIp, PORT))
+    s = socket.socket() # Now we can create socket object 
+    SEND_PORT = 9900     # Lets choose one port and connect to that port
+    s.connect((VM_IP, SEND_PORT))   # Lets connect to that port where socket at VM side may be waiting
     
+    message_to_send = "start__logstash__silkservice__caldera_agent"
+    s.send(message_to_send.to_bytes(2,'big'))   # send 함수는 데이터를 해당 소켓으로 보내는 함수이고
+    s.close()  # Close the connection from client side
     
     #-----------------------------------------------------------------------------------------------------------------------    
-    # 2. Send record-time (ETW-Agent in VM will start to record, once it receives record-time)
+    # 2. Wait and receive message of "started__logstash__silkservice__caldera_agent" from VM
+    s = socket.socket()     # Now we can create socket object
+    PORT = 1100             # Lets choose one port and start listening on that port
+    print(f"\n VM-socket is listing on port : {PORT}\n", flush = True)
+    s.bind(('', PORT)) # Now we need to bind socket to the above port 
+    s.listen(10)    # Now we will put the binded socket listening mode
 
-    s.send(record_time.to_bytes(2,'big'))   # send 함수는 데이터를 해당 소켓으로 보내는 함수이고
+    message_to_receive = None 
+    while True: # We do not know when client will contact; so should be listening continously  
+        conn, addr = s.accept()    # Now we can establish connection with client
+        message_to_receive = conn.recv(1024).decode()
+        conn.close()
+        print("\n HOST-socket closed the connection\n", flush=True)
+        break
 
-    # We can send file sample.txt
-    # Close the connection from client side
-    s.close()
-    
+    if message_to_receive == "started__logstash__silkservice__caldera_agent":
+        print(f"\n From VM, received message: {message_to_receive}\n", flush = True )
+    else:
+        raise ValueError(f"Value-Error with received message: {message_to_receive}")
+ 
+    s.close()  
+    time.sleep(5)
     #-----------------------------------------------------------------------------------------------------------------------        
     # 3. Create operations with API (it will start to run)
-    print ('start attack')
+    print('Start Attack (create_operation)', flush = True)
     ''' JY @ 2023-10-21: Adversary yml file should be placed in /home/priti/Desktop/caldera/data/adversaries'''
     create_operation.create_operation( adversary_id = adversary_id ) 
     
     # /home/jgwak1/tools__Copied_from_home_zhsu1_tools/etw/caldera/create_operation.py
-    
                                             # def create_operation():
                                             #     print('do not change adversary id')
                                             #     cmd = 'curl -X PUT -H "KEY:ADMIN123" http://localhost:8888/api/rest -d '+"'{"+'"index":"operations", "name":"testop1","adversary_id":"b176f4b1-a582-4774-b6f6-46a2e11480af" '+"}'"
                                             #     print (cmd)
-                                            #     os.system(cmd)
-    
-
+                                            #     os.system(cmd)    
     #-----------------------------------------------------------------------------------------------------------------------        
-    # 4. Wait record time
-    #    > wait based on record time
+    # 4. *For now, wait for "record time" during attack.
+    #                   
+    #     ^ Better way would be to capture the operation-termination,
+    #       (Need to find a way to do that; maybe using operation-id)
+    #       Then, tell the VM that operation is terminated, so stop log-collection.
+    #   
     time.sleep(record_time)
-    print ('end attack')
+    print(f'end attack, as {record_time}s elapsed.', flush = True)
+    #-----------------------------------------------------------------------------------------------------------------------        
+    # 6. Send message ("terminate__logstash__silkservice") to VM
+
+    s = socket.socket() # Now we can create socket object 
+    SEND_PORT = 9900     # Lets choose one port and connect to that port
+    s.connect((VM_IP, SEND_PORT))   # Lets connect to that port where socket at VM side may be waiting
+    
+    message_to_send = "terminate__logstash__silkservice"
+    s.send(message_to_send.to_bytes(2,'big'))   # send 함수는 데이터를 해당 소켓으로 보내는 함수이고
+    s.close()  # Close the connection from client side
+
     
     #-----------------------------------------------------------------------------------------------------------------------        
-    # 5. Shutdown caldera server
+    # 6. Shutdown caldera server
     control_server.shutdown_process(p)      # /home/jgwak1/tools__Copied_from_home_zhsu1_tools/etw/caldera/control_server.py
 
                                             # def shutdown_process(p):
                                             #     p.terminate()
 
     #-----------------------------------------------------------------------------------------------------------------------        
-    # 6. Start tcp server to receive logs. (waiting)
-    print ('waiting for response (to receive logs)')
-    waiting_for_response_start = datetime.datetime.now()
-
-    s = socket.socket()
-    
-    s.settimeout(4000)  # Set a timeout on blocking socket operations.
-    
-    s.bind(('',4001))   # socket.bind(address)¶
-                        #   Bind the socket to address. 
-                        #   The socket must not already be bound. 
-                        #   (The format of address depends on the address family — see above.)
-
-                        # When a socket has both an IP address and a port number it is said to be 'bound to a port', 
-                        # or 'bound to an address'. 
-                        # A bound socket can receive data because it has a complete address. 
-                        # The process of allocating a port number to a socket is called 'binding'.
-
-                        # "s.bind(('',4001))" means the server socket is bound to all available network interfaces on the system,
-                        #  and is listening for incoming connections on port 4001.
-
-
-
-    s.listen(10)    # socket.listen([backlog])
-                    #   Enable a server to accept connections. 
-                    #   If backlog is specified, it must be at least 0 (if it is lower, it is set to 0); 
-                    #   it specifies the number of unaccepted connections that the system will allow before refusing new connections. 
-                    #   If not specified, a default reasonable value is chosen.
-    
-    #store_path = '/home/zhan/code/python/malware/logs/'+ sys.argv[2]+'.txt'
-    #store_path = '/home/zshu1/tools/etw/tmp/caldera_attack.zip'
-    
-    # Added by JY -- 'storetime' can serve as ID. 
-    #                Later could consider changing the ID into short-descriptions of the attack .
-    store_time = datetime.datetime.now().strftime("%Y%m%d_%H_%M_%S")
-    # store_path = f'/home/jgwak1/tools__Copied_from_home_zhsu1_tools/etw/tmp/caldera_attack_{store_time}.zip' # Modified by JY @ 2023-02-27
-    store_path = f'/home/priti/Desktop/caldera/etw/tmp/{adversary_id}_{store_time}.zip'
-
-
-    if store_name :
-        store_path = store_name # change store path
-    f = open(store_path,'wb')
-
-    #-----------------------------------------------------------------------------------------------------------------------        
-    
-    
-    # 7. Get record and quit
-    while (True):
-        try:        # 계속 try해라
-
-            conn, addr = s.accept()     # socket.accept()
-
-                                        # Accept a connection. 
-                                        # The socket must be bound to an address and listening for connections. 
-                                        # The return value is a pair (conn, address) 
-                                        # where 'conn' is a new socket object usable to send and receive data on the connection,
-                                        # and 'address' is the address bound to the socket on the other end of the connection.            
-            
-            RecvData = conn.recv(1024)  # recv 함수는 해당 소켓으로부터 데이터를 받는 함수입니다
-            while RecvData:
-                f.write(RecvData)
-                RecvData = conn.recv(1024)
-
-            # Added by JY @ 2023-02-28
-            waiting_for_response_end = datetime.datetime.now()
-            print(f"'Waiting for Response (Receiving Logs)' Elapsed-Time: {str(waiting_for_response_end - waiting_for_response_start) }")
-
-            f.close()
-            print("\n File has been copied successfully \n")
-
-            conn.close()
-            print("\n Server closed the connection \n")
-            break
-
-        except Exception as e:
-            print (e)
-            print ('time out')
-            break
-    print ('end')
-
-
-
+ 
 
 
 def get_cmd():
@@ -314,7 +252,7 @@ def run_caldera():
 
 
 
-def receive_sample( pid, rtime, adversary_id ): 
+def procedure( pid, rtime, adversary_id ): 
 
     ''' 
     [Added by JY @ 2023-02-27 for JY's better understanding]
@@ -379,12 +317,11 @@ def receive_sample( pid, rtime, adversary_id ):
     # 4. Wait 40 sec for caldera agent to get the connection with caldera server.
 
 
-    print ('start to record')
-
+    print(f'start to record', flush= True)
     #-----------------------------------------------------------------------------------------------------------------------
     # 5. Start to record
     # create a server to receive samples 
-    get_record(pid, record_time, adversary_id )
+    interact_with_VM_for_logging(pid, record_time, adversary_id )
     print ('finish')
 
 
@@ -411,13 +348,9 @@ def main():
     # get commmand 
     pid = run_caldera() # "run_caldera()" starts the Caldera server, and waits to start, and returns caldera-server process-info "pid"
 
-
-    # for adversary_id in adversary_ids (os.listdir() )
-
-
-    # should be stored in "/home/priti/Desktop/caldera/data/adversaries"
+    # adversary-profile should be stored in "/home/priti/Desktop/caldera/data/adversaries"
     adversary_id = "custom_adversary_profile__None__None__stockpile__2023-10-22-18_00_30"
-    receive_sample( pid, t, adversary_id )   
+    procedure( pid, t, adversary_id )   
                                # "receive_sample()" is to start collecting ETW logs. 
                                # ‘pid’ ("Caldera Server Process PID") is used to shut down caldera after finishing the attack.  
                                # ‘record_time’ control how long we want to record.
