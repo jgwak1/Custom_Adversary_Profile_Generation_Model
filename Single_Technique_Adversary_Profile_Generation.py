@@ -77,7 +77,7 @@ class Single_Adversary_Profile_Generation_Model( Custom_Adversary_Profile_Genera
 
 
       adversary_id = f"{self.plugin.lower()}__{adversary_profile_name.lower()}__trial_{N}"
-      adversary_id = adversary_id.replace('/', ',').replace(':','-').replace(' ','_') # to avoid error (also don't allow space)
+      adversary_id = adversary_id.replace('/', ',').replace(':','-').replace(' ','_').replace('.','_') # to avoid error (also don't allow space)
 
 
       # not having '[' and ']' is very important.
