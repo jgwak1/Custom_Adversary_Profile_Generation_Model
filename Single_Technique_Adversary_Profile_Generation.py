@@ -77,10 +77,11 @@ class Single_Adversary_Profile_Generation_Model( Custom_Adversary_Profile_Genera
 
 
       adversary_id = f"{self.plugin.lower()}__{adversary_profile_name.lower()}__trial_{N}"
-      adversary_id = adversary_id.replace('/', ',') # to avoid error
+      adversary_id = adversary_id.replace('/', ',').replace(':','-').replace(' ','_') # to avoid error (also don't allow space)
+
 
       # not having '[' and ']' is very important.
-      first = f"""adversary_id: {adversary_id}\nname: Single Technique Custom Adversary Profile\ndescription: f"from {self.plugin} plugin"\natomic_ordering:\n"""
+      first = f"""adversary_id: {adversary_id}\nname: Single Technique Custom Adversary Profile\ndescription: {self.plugin} plugin\natomic_ordering:\n"""
       mid = f"- {technique_id} # {caldera_ability_id__MitreTechniqueID__map_dict[technique_id]}\n"
       last  ="""objective: 495a9828-cab1-44dd-a0ca-66e58177d8cc\ntags: []"""
 
